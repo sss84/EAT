@@ -26,7 +26,7 @@ I'(x, y) = α · I(x, y) + N(0, σ²)
 
 | Parameter | Value | Source |
 |-----------|-------|--------|
-| α (illumination attenuation) | ≈ 0.745 | Estimated from paired low-light images (LSD dataset, 115 valid pairs after filtering) |
+| α (illumination attenuation) | 0.7285 | Estimated from 101 self-collected controlled paired low-light images |
 | σ (Gaussian noise) | 0.01 | Fixed; follows sensor noise modeling of Unprocessing |
 
 Object annotations remain unchanged. The degradation is applied **online** during training and removed entirely at inference.
