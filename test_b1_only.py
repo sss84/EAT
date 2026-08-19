@@ -1,6 +1,6 @@
-# check_diffusion_params.py
+﻿# check_diffusion_params.py
 import inspect
-from denoising_diffusion_pytorch import GaussianDiffusion
+from eat import GaussianDiffusion
 
 print("🔍 检查GaussianDiffusion构造函数参数")
 print("=" * 60)

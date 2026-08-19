@@ -1,388 +1,145 @@
-<img src="./images/denoising-diffusion.png" width="500px"></img>
+# Exposure-Aware Training (EAT)
 
-## Denoising Diffusion Probabilistic Model, in Pytorch
+**Lightweight degradation-based training strategy for low-light object detection — without target-domain data, detector modifications, or inference overhead.**
 
-Implementation of <a href="https://arxiv.org/abs/2006.11239">Denoising Diffusion Probabilistic Model</a> in Pytorch. It is a new approach to generative modeling that may <a href="https://ajolicoeur.wordpress.com/the-new-contender-to-gans-score-matching-with-langevin-sampling/">have the potential</a> to rival GANs. It uses denoising score matching to estimate the gradient of the data distribution, followed by Langevin sampling to sample from the true distribution.
+> Su, Y., & Lu, M. (2026). Exposure-Aware Training for Low-Light Object Detection Without Target-Domain Data. *Journal of Imaging*, 12(6), 245. https://doi.org/10.3390/jimaging12060245
 
-This implementation was inspired by the official Tensorflow version <a href="https://github.com/hojonathanho/diffusion">here</a>
+---
 
-Youtube AI Educators - <a href="https://www.youtube.com/watch?v=W-O7AZNzbzQ">Yannic Kilcher</a> | <a href="https://www.youtube.com/watch?v=344w5h24-h8">AI Coffeebreak with Letitia</a> | <a href="https://www.youtube.com/watch?v=HoKDTa5jHvg">Outlier</a>
+## Motivation
 
-<a href="https://github.com/yiyixuxu/denoising-diffusion-flax">Flax implementation</a> from <a href="https://github.com/yiyixuxu">YiYi Xu</a>
+Low-light object detection suffers from an **illumination gap** between normal-light training data and low-light test data. Existing solutions typically require one or more of:
 
-<a href="https://huggingface.co/blog/annotated-diffusion">Annotated code</a> by Research Scientists / Engineers from <a href="https://huggingface.co/">🤗 Huggingface</a>
+- Re-designing the detector architecture
+- Adding an image-enhancement module at inference
+- Using target-domain (low-light) data during training
 
-Update: Turns out none of the technicalities really matters at all | <a href="https://arxiv.org/abs/2208.09392">"Cold Diffusion" paper</a> | <a href="https://muse-model.github.io/">Muse</a>
+EAT avoids all three. It operates **only at training time** by exposing the detector to controlled illumination degradation, learning more illumination-stable representations with **zero additional inference cost**.
 
-<img src="./images/sample.png" width="500px"><img>
+## Method
 
-[![PyPI version](https://badge.fury.io/py/denoising-diffusion-pytorch.svg)](https://badge.fury.io/py/denoising-diffusion-pytorch)
+### Degradation Model
 
-## Install
+During training, each normal-light image is transformed as:
+
+```
+I'(x, y) = α · I(x, y) + N(0, σ²)
+```
+
+| Parameter | Value | Source |
+|-----------|-------|--------|
+| α (illumination attenuation) | ≈ 0.745 | Estimated from paired low-light images (LSD dataset, 115 valid pairs after filtering) |
+| σ (Gaussian noise) | 0.01 | Fixed; follows sensor noise modeling of Unprocessing |
+
+Object annotations remain unchanged. The degradation is applied **online** during training and removed entirely at inference.
+
+### Key Design Principles
+
+1. **Task-oriented, not distribution-fitting** — only brightness attenuation and additive noise are retained; secondary effects (color shift, vignetting) are omitted.
+2. **Data-driven parameters** — α is estimated from real paired low-light data rather than chosen heuristically.
+3. **Training-only** — no enhancement module, no architecture change, no inference-stage computation.
+
+### Training Pipeline
+
+```
+Normal-light images + annotations
+        │
+        ▼
+EAT degradation: I' = α·I + N(0, σ²)
+        │
+        ▼
+Train detector (YOLOv8 / Faster R-CNN) on degraded images
+        │
+        ▼
+Inference: feed original low-light images directly — no preprocessing
+```
+
+## Installation
+
+Environment requirements are consistent with the underlying diffusion-model framework:
 
 ```bash
-$ pip install denoising_diffusion_pytorch
+git clone https://github.com/sss84/EAT.git
+cd EAT
+pip install -e .
 ```
+
+### Dependencies
+
+- Python ≥ 3.6
+- PyTorch ≥ 2.0
+- torchvision
+- accelerate
+- einops
+- ema-pytorch ≥ 0.4.2
+- numpy
+- pillow
+- pytorch-fid
+- scipy
+- tqdm
 
 ## Usage
 
-```python
-import torch
-from denoising_diffusion_pytorch import Unet, GaussianDiffusion
+### 1. Estimate degradation parameters (optional)
 
-model = Unet(
-    dim = 64,
-    dim_mults = (1, 2, 4, 8),
-    flash_attn = True
-)
-
-diffusion = GaussianDiffusion(
-    model,
-    image_size = 128,
-    timesteps = 1000    # number of steps
-)
-
-training_images = torch.rand(8, 3, 128, 128) # images are normalized from 0 to 1
-loss = diffusion(training_images)
-loss.backward()
-
-# after a lot of training
-
-sampled_images = diffusion.sample(batch_size = 4)
-sampled_images.shape # (4, 3, 128, 128)
-```
-
-Or, if you simply want to pass in a folder name and the desired image dimensions, you can use the `Trainer` class to easily train a model.
+If you want to re-estimate α from your own paired low-light data:
 
 ```python
-from denoising_diffusion_pytorch import Unet, GaussianDiffusion, Trainer
-
-model = Unet(
-    dim = 64,
-    dim_mults = (1, 2, 4, 8),
-    flash_attn = True
-)
-
-diffusion = GaussianDiffusion(
-    model,
-    image_size = 128,
-    timesteps = 1000,           # number of steps
-    sampling_timesteps = 250    # number of sampling timesteps (using ddim for faster inference [see citation for ddim paper])
-)
-
-trainer = Trainer(
-    diffusion,
-    'path/to/your/images',
-    train_batch_size = 32,
-    train_lr = 8e-5,
-    train_num_steps = 700000,         # total training steps
-    gradient_accumulate_every = 2,    # gradient accumulation steps
-    ema_decay = 0.995,                # exponential moving average decay
-    amp = True,                       # turn on mixed precision
-    calculate_fid = True              # whether to calculate fid during training
-)
-
-trainer.train()
+from eat.parameter_estimation import estimate_alpha
+# alpha = estimate_alpha(normal_light_dir, low_light_dir)
 ```
 
-Samples and model checkpoints will be logged to `./results` periodically
+Default α = 0.745, σ = 0.01 work stably across datasets.
 
-## Multi-GPU Training
+### 2. Apply EAT degradation during training
 
-The `Trainer` class is now equipped with <a href="https://huggingface.co/docs/accelerate/accelerator">🤗 Accelerator</a>. You can easily do multi-gpu training in two steps using their `accelerate` CLI
-
-At the project root directory, where the training script is, run
+Integrate the degradation transform into your detector's training dataloader:
 
 ```python
-$ accelerate config
+from eat.degradation import EATDegradation
+
+transform = EATDegradation(alpha=0.745, sigma=0.01)
+# Apply transform to training images only; keep annotations unchanged
 ```
 
-Then, in the same directory
+Then train your detector (YOLOv8, Faster R-CNN, etc.) with standard detection loss — no architecture changes needed.
 
-```python
-$ accelerate launch train.py
-```
+### 3. Inference
 
-## Miscellaneous
+At inference, use the trained detector directly on low-light images. **No degradation or enhancement is applied.**
 
-### 1D Sequence
+## Datasets
 
-By popular request, a 1D Unet + Gaussian Diffusion implementation.
+Experiments are conducted on:
 
-```python
-import torch
-from denoising_diffusion_pytorch import Unet1D, GaussianDiffusion1D, Trainer1D, Dataset1D
+- **ExDark** — Exclusively Dark dataset (low-light benchmark)
+- **VOC** — PASCAL VOC (normal-light source domain)
+- **TLD** — mixed-illumination detection dataset
+- **LSD** — low-light paired dataset for parameter estimation
 
-model = Unet1D(
-    dim = 64,
-    dim_mults = (1, 2, 4, 8),
-    channels = 32
-)
+## Results
 
-diffusion = GaussianDiffusion1D(
-    model,
-    seq_length = 128,
-    timesteps = 1000,
-    objective = 'pred_v'
-)
+EAT achieves consistent improvements under both **cross-domain** (VOC → ExDark, zero target-domain data) and **mixed-training** settings:
 
-training_seq = torch.rand(64, 32, 128) # features are normalized from 0 to 1
+- Stable gains on YOLOv8 and Faster R-CNN (~3.4–3.5% relative improvement)
+- More noticeable gains for illumination-sensitive categories
+- 68.6% mAP50 on ExDark, comparable to architecture-modification methods while maintaining a simpler pipeline
 
-loss = diffusion(training_seq)
-loss.backward()
-
-# Or using trainer
-
-dataset = Dataset1D(training_seq)  # this is just an example, but you can formulate your own Dataset and pass it into the `Trainer1D` below
-
-trainer = Trainer1D(
-    diffusion,
-    dataset = dataset,
-    train_batch_size = 32,
-    train_lr = 8e-5,
-    train_num_steps = 700000,         # total training steps
-    gradient_accumulate_every = 2,    # gradient accumulation steps
-    ema_decay = 0.995,                # exponential moving average decay
-    amp = True,                       # turn on mixed precision
-)
-trainer.train()
-
-# after a lot of training
-
-sampled_seq = diffusion.sample(batch_size = 4)
-sampled_seq.shape # (4, 32, 128)
-
-```
-
-`Trainer1D` does not evaluate the generated samples in any way since the type of data is not known.
-
-You could consider adding a suitable metric to the training loop yourself after doing an editable install of this package
-`pip install -e .`.
-
-## Citations
+## Citation
 
 ```bibtex
-@inproceedings{NEURIPS2020_4c5bcfec,
-    author      = {Ho, Jonathan and Jain, Ajay and Abbeel, Pieter},
-    booktitle   = {Advances in Neural Information Processing Systems},
-    editor      = {H. Larochelle and M. Ranzato and R. Hadsell and M.F. Balcan and H. Lin},
-    pages       = {6840--6851},
-    publisher   = {Curran Associates, Inc.},
-    title       = {Denoising Diffusion Probabilistic Models},
-    url         = {https://proceedings.neurips.cc/paper/2020/file/4c5bcfec8584af0d967f1ab10179ca4b-Paper.pdf},
-    volume      = {33},
-    year        = {2020}
+@article{su2026exposure,
+  title   = {Exposure-Aware Training for Low-Light Object Detection Without Target-Domain Data},
+  author  = {Su, Yawen and Lu, Min},
+  journal = {Journal of Imaging},
+  volume  = {12},
+  number  = {6},
+  pages   = {245},
+  year    = {2026},
+  doi     = {10.3390/jimaging12060245}
 }
 ```
 
-```bibtex
-@InProceedings{pmlr-v139-nichol21a,
-    title       = {Improved Denoising Diffusion Probabilistic Models},
-    author      = {Nichol, Alexander Quinn and Dhariwal, Prafulla},
-    booktitle   = {Proceedings of the 38th International Conference on Machine Learning},
-    pages       = {8162--8171},
-    year        = {2021},
-    editor      = {Meila, Marina and Zhang, Tong},
-    volume      = {139},
-    series      = {Proceedings of Machine Learning Research},
-    month       = {18--24 Jul},
-    publisher   = {PMLR},
-    pdf         = {http://proceedings.mlr.press/v139/nichol21a/nichol21a.pdf},
-    url         = {https://proceedings.mlr.press/v139/nichol21a.html},
-}
-```
+## License
 
-```bibtex
-@inproceedings{kingma2021on,
-    title       = {On Density Estimation with Diffusion Models},
-    author      = {Diederik P Kingma and Tim Salimans and Ben Poole and Jonathan Ho},
-    booktitle   = {Advances in Neural Information Processing Systems},
-    editor      = {A. Beygelzimer and Y. Dauphin and P. Liang and J. Wortman Vaughan},
-    year        = {2021},
-    url         = {https://openreview.net/forum?id=2LdBqxc1Yv}
-}
-```
-
-```bibtex
-@article{Karras2022ElucidatingTD,
-    title   = {Elucidating the Design Space of Diffusion-Based Generative Models},
-    author  = {Tero Karras and Miika Aittala and Timo Aila and Samuli Laine},
-    journal = {ArXiv},
-    year    = {2022},
-    volume  = {abs/2206.00364}
-}
-```
-
-```bibtex
-@article{Song2021DenoisingDI,
-    title   = {Denoising Diffusion Implicit Models},
-    author  = {Jiaming Song and Chenlin Meng and Stefano Ermon},
-    journal = {ArXiv},
-    year    = {2021},
-    volume  = {abs/2010.02502}
-}
-```
-
-```bibtex
-@misc{chen2022analog,
-    title   = {Analog Bits: Generating Discrete Data using Diffusion Models with Self-Conditioning},
-    author  = {Ting Chen and Ruixiang Zhang and Geoffrey Hinton},
-    year    = {2022},
-    eprint  = {2208.04202},
-    archivePrefix = {arXiv},
-    primaryClass = {cs.CV}
-}
-```
-
-```bibtex
-@article{Salimans2022ProgressiveDF,
-    title   = {Progressive Distillation for Fast Sampling of Diffusion Models},
-    author  = {Tim Salimans and Jonathan Ho},
-    journal = {ArXiv},
-    year    = {2022},
-    volume  = {abs/2202.00512}
-}
-```
-
-```bibtex
-@article{Ho2022ClassifierFreeDG,
-    title   = {Classifier-Free Diffusion Guidance},
-    author  = {Jonathan Ho},
-    journal = {ArXiv},
-    year    = {2022},
-    volume  = {abs/2207.12598}
-}
-```
-
-```bibtex
-@article{Sunkara2022NoMS,
-    title   = {No More Strided Convolutions or Pooling: A New CNN Building Block for Low-Resolution Images and Small Objects},
-    author  = {Raja Sunkara and Tie Luo},
-    journal = {ArXiv},
-    year    = {2022},
-    volume  = {abs/2208.03641}
-}
-```
-
-```bibtex
-@inproceedings{Jabri2022ScalableAC,
-    title   = {Scalable Adaptive Computation for Iterative Generation},
-    author  = {A. Jabri and David J. Fleet and Ting Chen},
-    year    = {2022}
-}
-```
-
-```bibtex
-@article{Cheng2022DPMSolverPlusPlus,
-    title   = {DPM-Solver++: Fast Solver for Guided Sampling of Diffusion Probabilistic Models},
-    author  = {Cheng Lu and Yuhao Zhou and Fan Bao and Jianfei Chen and Chongxuan Li and Jun Zhu},
-    journal = {NeuRips 2022 Oral},
-    year    = {2022},
-    volume  = {abs/2211.01095}
-}
-```
-
-```bibtex
-@inproceedings{Hoogeboom2023simpleDE,
-    title   = {simple diffusion: End-to-end diffusion for high resolution images},
-    author  = {Emiel Hoogeboom and Jonathan Heek and Tim Salimans},
-    year    = {2023}
-}
-```
-
-```bibtex
-@misc{https://doi.org/10.48550/arxiv.2302.01327,
-    doi     = {10.48550/ARXIV.2302.01327},
-    url     = {https://arxiv.org/abs/2302.01327},
-    author  = {Kumar, Manoj and Dehghani, Mostafa and Houlsby, Neil},
-    title   = {Dual PatchNorm},
-    publisher = {arXiv},
-    year    = {2023},
-    copyright = {Creative Commons Attribution 4.0 International}
-}
-```
-
-```bibtex
-@inproceedings{Hang2023EfficientDT,
-    title   = {Efficient Diffusion Training via Min-SNR Weighting Strategy},
-    author  = {Tiankai Hang and Shuyang Gu and Chen Li and Jianmin Bao and Dong Chen and Han Hu and Xin Geng and Baining Guo},
-    year    = {2023}
-}
-```
-
-```bibtex
-@misc{Guttenberg2023,
-    author  = {Nicholas Guttenberg},
-    url     = {https://www.crosslabs.org/blog/diffusion-with-offset-noise}
-}
-```
-
-```bibtex
-@inproceedings{Lin2023CommonDN,
-    title   = {Common Diffusion Noise Schedules and Sample Steps are Flawed},
-    author  = {Shanchuan Lin and Bingchen Liu and Jiashi Li and Xiao Yang},
-    year    = {2023}
-}
-```
-
-```bibtex
-@inproceedings{dao2022flashattention,
-    title   = {Flash{A}ttention: Fast and Memory-Efficient Exact Attention with {IO}-Awareness},
-    author  = {Dao, Tri and Fu, Daniel Y. and Ermon, Stefano and Rudra, Atri and R{\'e}, Christopher},
-    booktitle = {Advances in Neural Information Processing Systems},
-    year    = {2022}
-}
-```
-
-```bibtex
-@article{Bondarenko2023QuantizableTR,
-    title   = {Quantizable Transformers: Removing Outliers by Helping Attention Heads Do Nothing},
-    author  = {Yelysei Bondarenko and Markus Nagel and Tijmen Blankevoort},
-    journal = {ArXiv},
-    year    = {2023},
-    volume  = {abs/2306.12929},
-    url     = {https://api.semanticscholar.org/CorpusID:259224568}
-}
-```
-
-```bibtex
-@article{Karras2023AnalyzingAI,
-    title   = {Analyzing and Improving the Training Dynamics of Diffusion Models},
-    author  = {Tero Karras and Miika Aittala and Jaakko Lehtinen and Janne Hellsten and Timo Aila and Samuli Laine},
-    journal = {ArXiv},
-    year    = {2023},
-    volume  = {abs/2312.02696},
-    url     = {https://api.semanticscholar.org/CorpusID:265659032}
-}
-```
-
-```bibtex
-@article{Li2024ImmiscibleDA,
-    title   = {Immiscible Diffusion: Accelerating Diffusion Training with Noise Assignment},
-    author  = {Yiheng Li and Heyang Jiang and Akio Kodaira and Masayoshi Tomizuka and Kurt Keutzer and Chenfeng Xu},
-    journal = {ArXiv},
-    year    = {2024},
-    volume  = {abs/2406.12303},
-    url     = {https://api.semanticscholar.org/CorpusID:270562607}
-}
-```
-
-```bibtex
-@article{Chung2024CFGMC,
-    title   = {CFG++: Manifold-constrained Classifier Free Guidance for Diffusion Models},
-    author  = {Hyungjin Chung and Jeongsol Kim and Geon Yeong Park and Hyelin Nam and Jong Chul Ye},
-    journal = {ArXiv},
-    year    = {2024},
-    volume  = {abs/2406.08070},
-    url     = {https://api.semanticscholar.org/CorpusID:270391454}
-}
-```
-
-```bibtex
-@inproceedings{Sadat2024EliminatingOA,
-    title   = {Eliminating Oversaturation and Artifacts of High Guidance Scales in Diffusion Models},
-    author  = {Seyedmorteza Sadat and Otmar Hilliges and Romann M. Weber},
-    year    = {2024},
-    url     = {https://api.semanticscholar.org/CorpusID:273098845}
-}
-```
+MIT

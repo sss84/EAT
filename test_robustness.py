@@ -1,4 +1,4 @@
-"""
+﻿"""
 最终B1验证 - 确认0.0020是正确的强度
 """
 
@@ -18,7 +18,7 @@ TARGET_MEAN = 0.152910
 
 # 导入模型
 sys.path.append('.')
-from denoising_diffusion_pytorch.denoising_diffusion_pytorch import GaussianDiffusion, Unet
+from eat.diffusion_model import GaussianDiffusion, Unet
 
 # 创建模型
 model = Unet(dim=64, dim_mults=(1, 2, 4, 8))

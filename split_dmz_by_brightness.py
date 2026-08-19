@@ -1,11 +1,11 @@
-import os
+﻿import os
 import cv2
 import numpy as np
 from pathlib import Path
 import shutil
 
 # ==================== 配置路径 ====================
-DMZ_ROOT = r"D:\project1\denoising-diffusion-pytorch-main\DMZ"
+DMZ_ROOT = r"D:\project1\eat\DMZ"
 TRAIN_IMAGES = os.path.join(DMZ_ROOT, "train", "images")
 TRAIN_LABELS = os.path.join(DMZ_ROOT, "train", "labels")
 VAL_IMAGES = os.path.join(DMZ_ROOT, "val", "images")

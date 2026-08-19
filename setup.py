@@ -1,20 +1,23 @@
 from setuptools import setup, find_packages
 
-exec(open('denoising_diffusion_pytorch/version.py').read())
+exec(open('eat/version.py').read())
 
 setup(
-  name = 'denoising-diffusion-pytorch',
+  name = 'exposure-aware-training',
   packages = find_packages(),
   version = __version__,
   license='MIT',
-  description = 'Denoising Diffusion Probabilistic Models - Pytorch',
-  author = 'Phil Wang',
-  author_email = 'lucidrains@gmail.com',
-  url = 'https://github.com/lucidrains/denoising-diffusion-pytorch',
+  description = 'Exposure-Aware Training (EAT): Lightweight degradation-based training strategy for low-light object detection without target-domain data',
+  author = 'Yawen Su',
+  author_email = 'syw123456_0617@qq.com',
+  url = 'https://github.com/sss84/EAT',
   long_description_content_type = 'text/markdown',
   keywords = [
-    'artificial intelligence',
-    'generative models'
+    'exposure-aware-training',
+    'low-light-object-detection',
+    'domain-generalization',
+    'degradation-modeling',
+    'zero-inference-adaptation'
   ],
   install_requires=[
     'accelerate',

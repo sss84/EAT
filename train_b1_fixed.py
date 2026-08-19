@@ -1,4 +1,4 @@
-# apply_b1_final_fixed.py
+﻿# apply_b1_final_fixed.py
 import torch
 import os
 import sys
@@ -11,7 +11,7 @@ sys.path.append('.')
 
 # 尝试导入
 try:
-    from denoising_diffusion_pytorch.denoising_diffusion_pytorch import GaussianDiffusion, Unet
+    from eat.diffusion_model import GaussianDiffusion, Unet
 
     print("✅ 成功导入扩散模型")
 except ImportError:
@@ -19,13 +19,13 @@ except ImportError:
 
     # 尝试直接导入
     try:
-        import denoising_diffusion_pytorch
+        import eat
 
-        print(f"✅ 找到模块: {denoising_diffusion_pytorch.__file__}")
+        print(f"✅ 找到模块: {eat.__file__}")
 
         # 动态获取类
-        GaussianDiffusion = denoising_diffusion_pytorch.GaussianDiffusion
-        Unet = denoising_diffusion_pytorch.Unet
+        GaussianDiffusion = eat.GaussianDiffusion
+        Unet = eat.Unet
     except:
         print("❌ 所有导入方式都失败")
         exit(1)

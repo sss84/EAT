@@ -1,10 +1,10 @@
-import torch
+﻿import torch
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from denoising_diffusion_pytorch import Unet, GaussianDiffusion
+from eat import Unet, GaussianDiffusion
 
 
 def analyze_image_brightness(img_tensor):

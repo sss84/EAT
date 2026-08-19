@@ -1,6 +1,6 @@
-import torch
+﻿import torch
 from torchvision.utils import save_image
-from denoising_diffusion_pytorch import Unet, GaussianDiffusion
+from eat import Unet, GaussianDiffusion
 
 print("=" * 60)
 print("Phase 1 验证：偏移网络效果对比测试")
@@ -34,7 +34,7 @@ print(f"  当前偏移强度: {getattr(diffusion, 'offset_strength', '未定义'
 
 if not hasattr(diffusion, 'offset_net'):
     print("❌ 错误：offset_net 未定义！")
-    print("请确保在 denoising_diffusion_pytorch.py 文件中：")
+    print("请确保在 eat.py 文件中：")
     print("  1. GaussianDiffusion.__init__() 中添加了 self.offset_net 定义")
     print("  2. GaussianDiffusion.__init__() 中添加了 self.offset_strength = 0.1")
     exit()

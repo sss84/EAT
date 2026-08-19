@@ -1,4 +1,4 @@
-# apply_b1_to_yolo_final.py
+﻿# apply_b1_to_yolo_final.py
 import torch
 import os
 import cv2
@@ -30,7 +30,7 @@ print("\n1. 加载训练好的B1模型...")
 sys.path.append('.')
 
 try:
-    from denoising_diffusion_pytorch.denoising_diffusion_pytorch import GaussianDiffusion, Unet
+    from eat.diffusion_model import GaussianDiffusion, Unet
 
     # 创建模型
     model = Unet(dim=64, dim_mults=(1, 2, 4, 8))

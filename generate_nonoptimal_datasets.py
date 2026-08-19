@@ -1,13 +1,13 @@
-import os
+﻿import os
 import shutil
 import random
 from pathlib import Path
 
 # ==================== 配置参数（根据你的实际情况修改，Windows 路径格式） ====================
 # 1. 你的原始数据集根目录（复制 Windows 路径，直接粘贴即可，用 r 前缀避免转义）
-RAW_DATASET_DIR = r"D:\新建文件夹\denoising-diffusion-pytorch-main\ExDark\__MACOSX\ExDark"
+RAW_DATASET_DIR = r"D:\新建文件夹\eat\ExDark\__MACOSX\ExDark"
 # 2. 整理后的 YOLO 数据集输出目录（Windows 目录，可自定义）
-YOLO_DATASET_DIR = r"D:\新建文件夹\denoising-diffusion-pytorch-main\ExDark\yolo_exdark"
+YOLO_DATASET_DIR = r"D:\新建文件夹\eat\ExDark\yolo_exdark"
 # 3. 训练集/验证集划分比例（train:val = TRAIN_SPLIT : (1-TRAIN_SPLIT)）
 TRAIN_SPLIT = 0.8
 # 4. 支持的图像格式（无需修改，覆盖常见格式）

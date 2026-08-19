@@ -1,4 +1,4 @@
-# final_dataset_fix.py
+﻿# final_dataset_fix.py
 import os
 import shutil
 from pathlib import Path
@@ -50,7 +50,7 @@ def fix_dataset_issues():
 def rebuild_from_voc():
     """从VOC目录重新构建YOLO数据集"""
 
-    voc_dir = Path(r"D:\新建文件夹\denoising-diffusion-pytorch-main\DMZ")
+    voc_dir = Path(r"D:\新建文件夹\eat\DMZ")
     yolo_dir = Path(r"D:\苏雅文\Desktop\ultralytics-main\DMZ")
 
     print(f"📂 VOC目录: {voc_dir}")
@@ -375,7 +375,7 @@ def main():
     print("=" * 50)
 
     # 1. 添加模型路径
-    model_dir = Path(r"D:\\新建文件夹\\denoising-diffusion-pytorch-main")
+    model_dir = Path(r"D:\\新建文件夹\\eat")
     sys.path.append(str(model_dir))
 
     print(f"📁 模型目录: {model_dir}")
@@ -438,7 +438,7 @@ if __name__ == "__main__":
     main()
 '''
 
-    script_path = Path(r"D:\新建文件夹\denoising-diffusion-pytorch-main\train_b1_simple.py")
+    script_path = Path(r"D:\新建文件夹\eat\train_b1_simple.py")
 
     with open(script_path, 'w', encoding='utf-8') as f:
         f.write(script_content)
