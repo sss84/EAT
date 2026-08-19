@@ -492,7 +492,7 @@ class GaussianDiffusion(Module):
         min_snr_loss_weight = False, # https://arxiv.org/abs/2303.09556
         min_snr_gamma = 5,
         immiscible = False,
-        use_offset_network = True,  # 是否使用偏移网络
+        use_offset_network = True,
         offset_strength = 0.1
     ):
         super().__init__()
@@ -501,14 +501,13 @@ class GaussianDiffusion(Module):
 
         self.use_offset_network = use_offset_network
         self.offset_strength = offset_strength
-        # 在 __init__ 方法中，找到偏移网络定义，修改为：
         self.offset_net = torch.nn.Sequential(
             torch.nn.Conv2d(3, 32, kernel_size=3, padding=1),
             torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 3, kernel_size=3, padding=1),  # 直接32->3，少一层
+            torch.nn.Conv2d(32, 3, kernel_size=3, padding=1),
             torch.nn.Tanh()
         )
-        self.offset_strength = 0.1  # 增加默认强度
+        self.offset_strength = 0.1
 
         self.model = model
 
@@ -693,22 +692,15 @@ class GaussianDiffusion(Module):
                                          lr=1e-4,
                                          lambda_brightness=0.1,
                                          log_interval=50):
-        """
-        安全版本：不使用完整的扩散采样，而是直接在噪声图像上训练偏移网络
-        """
         print("=" * 60)
-        print("开始 阶段B1（安全版）：偏移网络亮度统计对齐训练")
         print("=" * 60)
 
-        # 1. 冻结所有非偏移网络参数
-        print("冻结扩散模型主干参数...")
         for name, param in self.named_parameters():
             if 'offset_net' not in name:
                 param.requires_grad = False
             else:
                 param.requires_grad = True
 
-        # 2. 定义亮度损失函数
         def brightness_loss(x_sim, mean_real, std_real):
             x = (x_sim + 1) * 0.5
             R, G, B = x[:, 0], x[:, 1], x[:, 2]
@@ -718,53 +710,41 @@ class GaussianDiffusion(Module):
             loss = (mean_sim - mean_real) ** 2 + (std_sim - std_real) ** 2
             return loss, mean_sim.item(), std_sim.item()
 
-        # 3. 优化器
         optimizer = torch.optim.Adam(self.offset_net.parameters(), lr=lr)
 
-        # 4. 获取正确的图像尺寸
         if isinstance(self.image_size, (tuple, list)):
             h, w = self.image_size[0], self.image_size[1]
         else:
             h = w = self.image_size
 
-        print(f"图像尺寸: {h}x{w}, 通道数: {self.channels}")
 
-        # 5. 训练循环（简化版：直接在随机噪声上训练）
-        print(f"\n开始安全训练，目标: mean={target_mean}, std={target_std}")
 
         for step in range(1, training_steps + 1):
             optimizer.zero_grad()
 
-            # 🎯 关键修改：使用随机噪声作为输入
             batch_shape = (batch_size, self.channels, h, w)
             random_images = torch.randn(batch_shape, device=self.betas.device)
 
-            # 应用偏移网络
             offset = self.offset_net(random_images)
             x_sim = random_images + self.offset_strength * offset
-            x_sim = torch.clamp(x_sim, -1, 1)  # 限制范围
+            x_sim = torch.clamp(x_sim, -1, 1)
 
-            # 计算损失
             loss_bri, mean_sim, std_sim = brightness_loss(x_sim, target_mean, target_std)
             total_loss = lambda_brightness * loss_bri
 
-            # 反向传播
             total_loss.backward()
             optimizer.step()
 
-            # 日志
             if step % log_interval == 0 or step == 1:
                 print(f"[Step {step:04d}/{training_steps}] "
                       f"Loss: {total_loss.item():.6f} | "
                       f"Mean: {mean_sim:.3f} (target: {target_mean:.3f}) | "
                       f"Std: {std_sim:.3f} (target: {target_std:.3f})")
 
-        # 6. 恢复梯度
         for param in self.parameters():
             param.requires_grad = True
 
         print("\n" + "=" * 60)
-        print("阶段B1安全训练完成！")
         print("=" * 60)
         return self.offset_net
 
@@ -774,7 +754,6 @@ class GaussianDiffusion(Module):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
 
-        # ① 标准 DDPM 预测
         model_mean, _, model_log_variance, x_start = self.p_mean_variance(
             x=x,
             t=batched_times,
@@ -785,9 +764,8 @@ class GaussianDiffusion(Module):
         noise = torch.randn_like(x) if t > 0 else 0.
         img = model_mean + (0.5 * model_log_variance).exp() * noise
 
-        # ② 🔥 退化偏移（只在这里加）
         if getattr(self, 'use_offset_network', False):
-            with torch.no_grad():  # B1 / B1.5 阶段一定要有
+            with torch.no_grad():
                 offset = self.offset_net(img)
 
             img = img + self.offset_strength * offset
@@ -851,21 +829,14 @@ class GaussianDiffusion(Module):
         return ret
 
     def sample_with_offset(self, batch_size=16, last_steps_ratio=0.3, offset_strength=None):
-        """
-        使用偏移网络进行采样
-        last_steps_ratio: 在最后多少比例的时间步应用偏移 (0.0-1.0)
-        """
-        # 临时设置参数
         original_use_offset = getattr(self, 'use_offset_network', False)
         original_strength = getattr(self, 'offset_strength', 0.1)
 
         self.use_offset_network = True
         self.offset_strength = offset_strength if offset_strength is not None else original_strength
 
-        # 存储原始p_sample_loop方法
         original_p_sample_loop = self.p_sample_loop
 
-        # 创建带参数的临时版本
         def temp_p_sample_loop(shape, return_all_timesteps=False):
             batch, device = shape[0], self.betas.device
             img = torch.randn(shape, device=device)
@@ -878,7 +849,6 @@ class GaussianDiffusion(Module):
                 img, x_start = self.p_sample(img, t, self_cond)
                 imgs.append(img)
 
-                # 应用偏移（根据参数）
                 if t < self.num_timesteps * last_steps_ratio:
                     with torch.no_grad():
                         offset = self.offset_net(img)
@@ -888,14 +858,11 @@ class GaussianDiffusion(Module):
             ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
             return self.unnormalize(ret)
 
-        # 临时替换方法
         self.p_sample_loop = temp_p_sample_loop
 
-        # 执行采样
         shape = (batch_size, self.channels, self.image_size, self.image_size)
         result = self.p_sample_loop(shape)
 
-        # 恢复原始方法
         self.p_sample_loop = original_p_sample_loop
         self.use_offset_network = original_use_offset
         self.offset_strength = original_strength
