@@ -437,17 +437,14 @@ class GaussianDiffusion1D(Module):
         self.seq_index = -2 if not channel_first else -1
 
         # =====================================================
-        # B1: 偏移网络（低光退化）
         # =====================================================
-        self.use_offset_network = False # ⭐⭐ 关键开关（你缺的）
-        self.offset_strength = 0.0022  # 用你 B1 验证出来的最优值
-        # self.offset_net = ...             # 你之前已经定义过，这里不动
+        self.use_offset_network = False
+        self.offset_strength = 0.0022
 
         # =====================================================
-        # B2: 频域衰减（可选）
         # =====================================================
-        self.use_frequency_attenuation = False  # 默认关闭，用于消融
-        self.frequency_alpha = 0.05  # 高频抑制强度
+        self.use_frequency_attenuation = False
+        self.frequency_alpha = 0.05
 
         self.frequency_attenuation = self._frequency_attenuation
 
@@ -632,11 +629,10 @@ class GaussianDiffusion1D(Module):
                 model_forward_kwargs=model_forward_kwargs
             )
 
-            # ===== 🎯 B1 / B2 退化注入（关键位置）=====
             if (
                     hasattr(self, 'use_offset_network')
                     and self.use_offset_network
-                    and t < int(self.num_timesteps * 0.5)  # 后 50%
+                    and t < int(self.num_timesteps * 0.5)
             ):
                 with torch.no_grad():
                     offset = self.offset_net(img)
