@@ -475,40 +475,6 @@ def sigmoid_beta_schedule(timesteps, start = -3, end = 3, tau = 1, clamp_min = 1
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
     return torch.clip(betas, 0, 0.999)
 
-
-def generate_scale_aware_mask(img_shape, bboxes, gamma=15.0):
-    """
-    根据单张图的目标大小，生成空间自适应方差控制掩码
-    img_shape: (H, W)
-    bboxes: 列表或Tensor，格式为 [[xmin, ymin, xmax, ymax], ...] 像素绝对坐标
-    """
-    H, W = img_shape
-    img_area = H * W
-    # 初始化为全 1（标准全图加噪，针对背景）
-    mask = torch.ones((1, H, W), dtype=torch.float32)
-
-    if bboxes is not None and len(bboxes) > 0:
-        for box in bboxes:
-            xmin, ymin, xmax, ymax = map(int, box[:4])
-            # 边界安全裁剪，防止标签溢出
-            xmin, ymin = max(0, xmin), max(0, ymin)
-            xmax, ymax = min(W, xmax), min(H, ymax)
-
-            box_w = xmax - xmin
-            box_h = ymax - ymin
-            box_area = box_w * box_h
-            relative_area = box_area / img_area
-
-            # 核心映射：面积越小，m_val 越接近 0（噪声越小，保护越强）
-            m_val = 1.0 - math.exp(-gamma * relative_area)
-
-            # 局部区域赋予抗噪权重
-            mask[:, ymin:ymax, xmin:xmax] = torch.minimum(
-                mask[:, ymin:ymax, xmin:xmax],
-                torch.tensor(m_val, dtype=torch.float32)
-            )
-    return mask
-
 class GaussianDiffusion(Module):
     def __init__(
         self,
@@ -969,37 +935,38 @@ class GaussianDiffusion(Module):
         return torch.from_numpy(assign).to(dist.device)
 
     @autocast('cuda', enabled = False)
-    def q_sample(self, x_start, t, noise = None, mask = None):
+    def q_sample(self, x_start, t, noise = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         if self.immiscible:
             assign = self.noise_assignment(x_start, noise)
             noise = noise[assign]
 
-        # === 🔥 核心修改：将空间自适应掩码应用到注入的噪声上 ===
-        if exists(mask):
-            # mask 自动通过 broadcast 适配 [B, C, H, W]
-            effective_noise = noise * mask
-        else:
-            effective_noise = noise
-
         return (
             extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
-            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * effective_noise
+            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
 
-    def p_losses(self, x_start, t, noise=None, offset_noise_strength=None, mask=None):
+    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None):
         b, c, h, w = x_start.shape
 
         noise = default(noise, lambda: torch.randn_like(x_start))
 
-        # offset noise - 保持原样
-        if offset_noise_strength is not None and offset_noise_strength > 0.:
-            offset_noise = torch.randn(x_start.shape[:2], device=self.device)
+        # offset noise - https://www.crosslabs.org/blog/diffusion-with-offset-noise
+
+        offset_noise_strength = default(offset_noise_strength, self.offset_noise_strength)
+
+        if offset_noise_strength > 0.:
+            offset_noise = torch.randn(x_start.shape[:2], device = self.device)
             noise += offset_noise_strength * rearrange(offset_noise, 'b c -> b c 1 1')
 
-        # === 🔥 核心修改：将 mask 传给加噪函数 ===
-        x = self.q_sample(x_start=x_start, t=t, noise=noise, mask=mask)
+        # noise sample
+
+        x = self.q_sample(x_start = x_start, t = t, noise = noise)
+
+        # if doing self-conditioning, 50% of the time, predict x_start from current set of times
+        # and condition with unet with that
+        # this technique will slow down training by 25%, but seems to lower FID significantly
 
         x_self_cond = None
         if self.self_condition and random() < 0.5:
@@ -1007,35 +974,33 @@ class GaussianDiffusion(Module):
                 x_self_cond = self.model_predictions(x, t).pred_x_start
                 x_self_cond.detach_()
 
+        # predict and take gradient step
+
         model_out = self.model(x, t, x_self_cond)
 
-        # === 🔥 核心修改：计算 Loss 的 Target 也要进行同样的 Mask 约束 ===
         if self.objective == 'pred_noise':
-            target = noise if mask is None else noise * mask
+            target = noise
         elif self.objective == 'pred_x0':
             target = x_start
         elif self.objective == 'pred_v':
-            # 如果是 v 预测，利用实际注入的 masked_noise 计算 v
-            effective_noise = noise if mask is None else noise * mask
-            v = self.predict_v(x_start, t, effective_noise)
+            v = self.predict_v(x_start, t, noise)
             target = v
         else:
             raise ValueError(f'unknown objective {self.objective}')
 
-        loss = F.mse_loss(model_out, target, reduction='none')
+        loss = F.mse_loss(model_out, target, reduction = 'none')
         loss = reduce(loss, 'b ... -> b', 'mean')
 
         loss = loss * extract(self.loss_weight, t, loss.shape)
         return loss.mean()
 
-    def forward(self, img, mask = None, *args, **kwargs):
+    def forward(self, img, *args, **kwargs):
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size[0] and w == img_size[1], f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
         img = self.normalize(img)
-        # === 🔥 核心修改：将 mask 继续向后传递 ===
-        return self.p_losses(img, t, mask = mask, *args, **kwargs)
+        return self.p_losses(img, t, *args, **kwargs)
 
 # dataset classes
 
@@ -1066,21 +1031,10 @@ class Dataset(Dataset):
     def __len__(self):
         return len(self.paths)
 
-    # 找到您的 Dataset 类的 __getitem__ 方法，修改为类似这样：
     def __getitem__(self, index):
         path = self.paths[index]
         img = Image.open(path)
-        img_tensor = self.transform(img)  # 得到 [C, H, W]
-
-        # 1. 读取该张图片对应真实的目标检测 Bounding Boxes 像素坐标
-        # (这取决于您自己的数据集标签读取代码，比如从 txt 或 json 中读取)
-        bboxes = self.get_labels_by_index(index)
-
-        # 2. 调用第一步写好的函数，生成单张图的 mask [1, H, W]
-        mask_tensor = generate_scale_aware_mask(img_tensor.shape[-2:], bboxes, gamma=15.0)
-
-        # 3. 同时返回图像和对应的掩码
-        return img_tensor, mask_tensor
+        return self.transform(img)
 
 # trainer class
 
@@ -1259,23 +1213,14 @@ class Trainer:
 
                 total_loss = 0.
 
-                # === 修改后的 Trainer 梯度累积循环 ===
                 for _ in range(self.gradient_accumulate_every):
-                    data = next(self.dl)
-                    # 1. 自动判断 Dataset 返回的是单张图还是 (img, mask) 元组
-                    if isinstance(data, (tuple, list)):
-                        img, mask = data
-                        img, mask = img.to(device), mask.to(device)
-                    else:
-                        img, mask = data.to(device), None
+                    data = next(self.dl).to(device)
 
                     with self.accelerator.autocast():
-                        # 2. 将 mask 喂给模型
-                        loss = self.model(img, mask=mask)
+                        loss = self.model(data)
                         loss = loss / self.gradient_accumulate_every
                         total_loss += loss.item()
 
-                    # 3. 执行反向传播（保留原有逻辑）
                     self.accelerator.backward(loss)
 
                 pbar.set_description(f'loss: {total_loss:.4f}')
