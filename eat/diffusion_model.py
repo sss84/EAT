@@ -1,4 +1,4 @@
-﻿import math
+import math
 import copy
 from pathlib import Path
 from random import random
@@ -501,13 +501,10 @@ class GaussianDiffusion(Module):
 
         self.use_offset_network = use_offset_network
         self.offset_strength = offset_strength
-        self.offset_net = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 3, kernel_size=3, padding=1),
-            torch.nn.Tanh()
-        )
-        self.offset_strength = 0.1
+        # PSEUDO-CODE: Offset prediction network (EAT core module)
+        # Lightweight CNN that maps noisy image -> pixel-wise illumination offset
+        # Architecture details omitted; refer to paper Section 3.2
+        self.offset_net = None  # OffsetNetwork() — implementation omitted
 
         self.model = model
 
@@ -692,61 +689,23 @@ class GaussianDiffusion(Module):
                                          lr=1e-4,
                                          lambda_brightness=0.1,
                                          log_interval=50):
-        print("=" * 60)
-        print("=" * 60)
+        """
+        Train offset network to align brightness statistics with target low-light distribution.
+        PSEUDO-CODE: core implementation omitted.
 
-        for name, param in self.named_parameters():
-            if 'offset_net' not in name:
-                param.requires_grad = False
-            else:
-                param.requires_grad = True
+        Steps:
+          1. Freeze backbone, train only offset_net parameters.
+          2. Define luminance loss: align predicted image brightness (mean & std)
+             to target low-light statistics.
+          3. Iterate: sample noise -> apply offset_net -> compute brightness loss -> update.
+          4. Restore gradients and return trained offset_net.
 
-        def brightness_loss(x_sim, mean_real, std_real):
-            x = (x_sim + 1) * 0.5
-            R, G, B = x[:, 0], x[:, 1], x[:, 2]
-            Y = 0.299 * R + 0.587 * G + 0.114 * B
-            mean_sim = Y.mean()
-            std_sim = Y.std()
-            loss = (mean_sim - mean_real) ** 2 + (std_sim - std_real) ** 2
-            return loss, mean_sim.item(), std_sim.item()
-
-        optimizer = torch.optim.Adam(self.offset_net.parameters(), lr=lr)
-
-        if isinstance(self.image_size, (tuple, list)):
-            h, w = self.image_size[0], self.image_size[1]
-        else:
-            h = w = self.image_size
-
-
-
-        for step in range(1, training_steps + 1):
-            optimizer.zero_grad()
-
-            batch_shape = (batch_size, self.channels, h, w)
-            random_images = torch.randn(batch_shape, device=self.betas.device)
-
-            offset = self.offset_net(random_images)
-            x_sim = random_images + self.offset_strength * offset
-            x_sim = torch.clamp(x_sim, -1, 1)
-
-            loss_bri, mean_sim, std_sim = brightness_loss(x_sim, target_mean, target_std)
-            total_loss = lambda_brightness * loss_bri
-
-            total_loss.backward()
-            optimizer.step()
-
-            if step % log_interval == 0 or step == 1:
-                print(f"[Step {step:04d}/{training_steps}] "
-                      f"Loss: {total_loss.item():.6f} | "
-                      f"Mean: {mean_sim:.3f} (target: {target_mean:.3f}) | "
-                      f"Std: {std_sim:.3f} (target: {target_std:.3f})")
-
-        for param in self.parameters():
-            param.requires_grad = True
-
-        print("\n" + "=" * 60)
-        print("=" * 60)
-        return self.offset_net
+        Refer to paper Section 3.3 for full algorithm.
+        """
+        raise NotImplementedError(
+            "Offset network training logic is omitted in this public release. "
+            "See paper Section 3.3 for the algorithm description."
+        )
 
 
     @torch.inference_mode()
@@ -754,6 +713,7 @@ class GaussianDiffusion(Module):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
 
+        # Standard DDPM prediction (unchanged)
         model_mean, _, model_log_variance, x_start = self.p_mean_variance(
             x=x,
             t=batched_times,
@@ -764,12 +724,15 @@ class GaussianDiffusion(Module):
         noise = torch.randn_like(x) if t > 0 else 0.
         img = model_mean + (0.5 * model_log_variance).exp() * noise
 
+        # PSEUDO-CODE: Illumination offset injection (EAT core module)
+        # If offset network enabled: predict pixel-wise offset from current
+        # denoised image, apply with controlled strength, clamp to valid range.
+        # Refer to paper Section 3.2 for implementation details.
         if getattr(self, 'use_offset_network', False):
-            with torch.no_grad():
-                offset = self.offset_net(img)
-
-            img = img + self.offset_strength * offset
-            img = torch.clamp(img, -1, 1)
+            # offset = self.offset_net(img)
+            # img = img + self.offset_strength * offset
+            # img = torch.clamp(img, -1, 1)
+            pass
 
         return img, x_start
 
@@ -829,45 +792,23 @@ class GaussianDiffusion(Module):
         return ret
 
     def sample_with_offset(self, batch_size=16, last_steps_ratio=0.3, offset_strength=None):
-        original_use_offset = getattr(self, 'use_offset_network', False)
-        original_strength = getattr(self, 'offset_strength', 0.1)
+        """
+        Sample with offset network applied during the last portion of denoising steps.
+        PSEUDO-CODE: core implementation omitted.
 
-        self.use_offset_network = True
-        self.offset_strength = offset_strength if offset_strength is not None else original_strength
+        Steps:
+          1. Temporarily enable offset network with given strength.
+          2. Run standard DDPM sampling loop from noise to image.
+          3. In the last `last_steps_ratio` fraction of timesteps, apply
+             offset network after each denoising step.
+          4. Restore original settings and return generated images.
 
-        original_p_sample_loop = self.p_sample_loop
-
-        def temp_p_sample_loop(shape, return_all_timesteps=False):
-            batch, device = shape[0], self.betas.device
-            img = torch.randn(shape, device=device)
-            imgs = [img]
-            x_start = None
-
-            for t in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling with offset',
-                          total=self.num_timesteps):
-                self_cond = x_start if self.self_condition else None
-                img, x_start = self.p_sample(img, t, self_cond)
-                imgs.append(img)
-
-                if t < self.num_timesteps * last_steps_ratio:
-                    with torch.no_grad():
-                        offset = self.offset_net(img)
-                    img = img + self.offset_strength * offset
-                    img = torch.clamp(img, -1, 1)
-
-            ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
-            return self.unnormalize(ret)
-
-        self.p_sample_loop = temp_p_sample_loop
-
-        shape = (batch_size, self.channels, self.image_size, self.image_size)
-        result = self.p_sample_loop(shape)
-
-        self.p_sample_loop = original_p_sample_loop
-        self.use_offset_network = original_use_offset
-        self.offset_strength = original_strength
-
-        return result
+        Refer to paper Section 3.4 for full algorithm.
+        """
+        raise NotImplementedError(
+            "Offset-guided sampling logic is omitted in this public release. "
+            "See paper Section 3.4 for the algorithm description."
+        )
 
     @torch.inference_mode()
     def sample(self, batch_size = 16, return_all_timesteps = False):
