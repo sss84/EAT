@@ -1,8 +1,0 @@
-alpha_mean = 0.747232
-alpha_std = 0.101394
-num_pairs_used = 103
-filter_remove_darkest_ratio = 0.1
-filter_alpha_min = 0.4
-filter_alpha_max = 0.85
-filter_r2_threshold = 0.9
-random_seed = 42

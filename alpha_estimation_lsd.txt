@@ -1,4 +1,0 @@
-alpha_mean = 0.407897
-alpha_std = 0.234047
-num_pairs_used = 500
-random_seed = 42

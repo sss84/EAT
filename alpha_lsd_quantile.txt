@@ -1,8 +1,0 @@
-alpha_mean = 0.745009
-alpha_std = 0.120654
-num_pairs_used = 115
-brightness_remove_ratio = 0.1
-alpha_p5 = 0.143930
-alpha_p95 = 0.857728
-r2_threshold = 0.9
-random_seed = 42

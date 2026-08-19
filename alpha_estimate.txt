@@ -1,5 +1,0 @@
-alpha_star = 0.999994
-brightness_attenuation = 0.999986
-gamma = 2.2
-k = 0.001
-num_pairs = 204
