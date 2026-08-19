@@ -1,0 +1,6 @@
+# 手动搜索最优参数
+optimal_strength = 0.2
+optimal_ratio = 0.5
+achieved_brightness = 0.5
+target_brightness = 0.167
+difference = 0.33299999999999996

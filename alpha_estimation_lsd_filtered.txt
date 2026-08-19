@@ -1,0 +1,12 @@
+============================================================
+LSD Dataset Alpha Estimation Results
+============================================================
+
+Random seed: 42
+Total raw pairs: 5000
+After removing darkest 10%: 4500
+After R^2 >= 0.9: 300
+After 5%-95% percentile: 285
+
+Final alpha = 0.906661 ¡À 0.104547
+Alpha range: [0.640127, 1.000000]

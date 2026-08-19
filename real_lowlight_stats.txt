@@ -1,0 +1,9 @@
+TARGET_MEAN = 0.167455
+TARGET_STD  = 0.174652
+基于 5 张图像计算
+图像列表:
+  data\real_lowlight\1.jpg
+  data\real_lowlight\2.jpg
+  data\real_lowlight\3.jpg
+  data\real_lowlight\4.jpg
+  data\real_lowlight\5.jpg

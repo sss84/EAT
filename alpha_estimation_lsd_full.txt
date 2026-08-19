@@ -1,0 +1,11 @@
+============================================================
+LSD Dataset Alpha Estimation Results (ALL Images)
+============================================================
+
+Total raw pairs: 64318
+After removing darkest 10%: 57886
+After R^2 >= 0.9: 4338
+After 5%-95% percentile: 4104
+
+Final alpha = 0.905339 ¡À 0.107341
+Alpha range: [0.626730, 1.000000]
