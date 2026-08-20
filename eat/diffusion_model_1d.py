@@ -1,4 +1,4 @@
-﻿import math
+import math
 from pathlib import Path
 from random import random
 from functools import partial
@@ -436,13 +436,15 @@ class GaussianDiffusion1D(Module):
         self.channel_first = channel_first
         self.seq_index = -2 if not channel_first else -1
 
-        # =====================================================
-        # =====================================================
+        # PSEUDO-CODE: Offset network parameters (EAT core module)
+        # Lightweight offset prediction for illumination-aware denoising.
+        # Architecture & training details omitted; refer to paper Section 3.2.
         self.use_offset_network = False
         self.offset_strength = 0.0022
+        self.offset_net = None  # OffsetNetwork1D() — implementation omitted
 
-        # =====================================================
-        # =====================================================
+        # PSEUDO-CODE: Optional frequency-domain attenuation module
+        # Refer to paper ablation studies for details.
         self.use_frequency_attenuation = False
         self.frequency_alpha = 0.05
 
@@ -629,22 +631,19 @@ class GaussianDiffusion1D(Module):
                 model_forward_kwargs=model_forward_kwargs
             )
 
+            # PSEUDO-CODE: Illumination offset injection (EAT core module)
+            # In the latter half of denoising steps, if offset network enabled:
+            #   1. Predict offset from current denoised state
+            #   2. Optionally apply frequency-domain attenuation
+            #   3. Apply offset with controlled strength, clamp to valid range
+            #   4. Update self-condition state if enabled
+            # Refer to paper Section 3.2 for implementation details.
             if (
                     hasattr(self, 'use_offset_network')
                     and self.use_offset_network
                     and t < int(self.num_timesteps * 0.5)
             ):
-                with torch.no_grad():
-                    offset = self.offset_net(img)
-
-                    if self.use_frequency_attenuation:
-                        offset = self.frequency_attenuation(offset)
-
-                    img = img + self.offset_strength * offset
-                    img = torch.clamp(img, -1., 1.)
-
-                if self.self_condition:
-                    x_start = img.detach()
+                pass  # core offset logic omitted
 
         img = self.unnormalize(img)
 
